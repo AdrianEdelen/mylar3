@@ -73,7 +73,7 @@ class Process(object):
                 logger.info('Initiating Failed Download handling for this download.')
                 nzbid = self.download_info['id']
                 provider = self.download_info['provider']
-                FailProcess = mylar.Failed.FailedProcessor(nzb_name=self.nzb_name, nzb_folder=self.nzb_folder, queue=ppqueue, prov=provider, id=nzbid)
+                FailProcess = mylar.Failed.FailedProcessor(nzb_name=self.nzb_name, nzb_folder=self.nzb_folder, queue=ppqueue, prov=provider, id=nzbid, issueid=self.issueid, comicid=self.comicid)
                 thread_ = threading.Thread(target=FailProcess.Process, name="FAILED Post-Processing")
                 thread_.start()
                 thread_.join()
