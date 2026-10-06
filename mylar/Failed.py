@@ -258,13 +258,21 @@ class FailedProcessor(object):
         # download same issues on different providers (albeit it shouldn't matter, if it's broke it's broke).
         logger.info('prov  : ' + str(self.prov) + '[' + str(self.id) + ']')
         # if this is from nzbhydra, we need to rejig the id line so that the searchid is removed since it's always unique to the search.
+        # A failed release only tells us something about the issue it was grabbed for.
+        # Scope the lookup to that issue so an id shared across releases can't block
+        # unrelated issues (rows without an IssueID still match, as before).
+        issue_scope = ''
+        issue_args = []
+        if self.issueid is not None:
+            issue_scope = ' AND (IssueID=? OR IssueID IS NULL)'
+            issue_args = [str(self.issueid)]
         if 'indexerguid' in self.id:
             st = self.id.find('searchid:')
             end = self.id.find(',',st)
             self.id = '%' + self.id[:st] + '%' + self.id[end+1:len(self.id)-1] + '%'
-            chk_fail = myDB.selectone('SELECT * FROM failed WHERE ID LIKE ?', [self.id]).fetchone()
+            chk_fail = myDB.selectone('SELECT * FROM failed WHERE ID LIKE ?' + issue_scope, [self.id] + issue_args).fetchone()
         else:
-            chk_fail = myDB.selectone('SELECT * FROM failed WHERE ID=?', [self.id]).fetchone()
+            chk_fail = myDB.selectone('SELECT * FROM failed WHERE ID=?' + issue_scope, [self.id] + issue_args).fetchone()
 
         if chk_fail is None:
             logger.info(module + ' Successfully marked this download as Good for downloadable content')
