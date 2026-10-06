@@ -4002,12 +4002,35 @@ def IssueTitleCheck(
             return vals
     return
 
+def proxy_release_id(link):
+    """Return a stable per-release id for an indexer-proxy download link, or None.
+
+    Prowlarr (/<n>/download?apikey=...&link=...&file=...) and Jackett
+    (/dl/<indexer>/?jackett_apikey=...&path=...&file=...) wrap every result in the
+    same URL path, so ids derived from the path collide - every result from one
+    proxied indexer gets the same id (e.g. 'download'), and a single failed
+    download then blocks that indexer for every issue. The release filename the
+    proxy carries in `file` is stable per release, so use that instead.
+    """
+    try:
+        params = urllib.parse.parse_qs(urlparse(link).query)
+    except Exception:
+        return None
+    if params.get('file') and any(k in params for k in ('link', 'path')):
+        return 'proxy-%s' % params['file'][0]
+    return None
+
+
 def generate_id(nzbprov, link, comicname):
     #logger.fdebug('[type:%s][%s] generate_id - link: %s' % (type(nzbprov), nzbprov, link))
     if type(nzbprov) != str:
         # provider_stat is being passed in - use the type field to get the basics.
         nzbprov = nzbprov['type']
         logger.fdebug('nzbprov setting to : %s' % nzbprov)
+    if 'newznab' in nzbprov or nzbprov == 'torznab':
+        proxy_id = proxy_release_id(link)
+        if proxy_id is not None:
+            return proxy_id
     if nzbprov == 'experimental':
         # id is located after the /download/ portion
         url_parts = urlparse(link)
@@ -4057,7 +4080,10 @@ def generate_id(nzbprov, link, comicname):
         idtmp = urlparse(link)[4]
         if idtmp == '':
             idtmp = pathlib.PurePosixPath(unquote(urlparse(link).path))
-            for im in idtmp.parts:
+            # walk from the end: guids are usually <site>/<section>/<id> (e.g.
+            # myanonamouse.net/t/123456), and the first part is the shared
+            # section ('t'), which made every result from the site collide.
+            for im in reversed(idtmp.parts):
                 if all(
                     [
                          comicname.lower() not in im.lower(),

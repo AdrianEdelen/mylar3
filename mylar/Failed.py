@@ -114,6 +114,14 @@ class FailedProcessor(object):
                 self._log("trying again with this nzbname: " + str(nzbname))
                 logger.fdebug(module + ' Trying to locate nzbfile again with nzbname of : ' + str(nzbname))
                 nzbiss = myDB.selectone("SELECT * from nzblog WHERE nzbname=?", [nzbname]).fetchone()
+                if nzbiss is None and self.issueid is not None:
+                    # Completed-download handling already knows the IssueID, but the file name
+                    # it reports (e.g. 'Batman.007.(2026).(Digital).(Pyrate-DCP).cbz') rarely
+                    # matches the NZB name stored in the nzblog ('...Pyrate-DCP.-xpost').
+                    nzbiss = self._nzblog_by_issueid(myDB)
+                    if nzbiss is not None:
+                        logger.fdebug(module + ' Located the download in the nzblog by IssueID: ' + str(self.issueid))
+                        nzbname = nzbiss['NZBName']
                 if nzbiss is None:
                     logger.error(module + ' Unable to locate downloaded file to rename. PostProcessing aborted.')
                     self._log('Unable to locate downloaded file to rename. PostProcessing aborted.')
@@ -243,6 +251,15 @@ class FailedProcessor(object):
             return self.queue.put(self.valreturn)
 
 
+    def _nzblog_by_issueid(self, myDB):
+        """nzblog row for self.issueid, preferring the provider that grabbed it."""
+        nzbiss = None
+        if self.prov is not None:
+            nzbiss = myDB.selectone("SELECT * from nzblog WHERE IssueID=? AND Provider=?", [self.issueid, self.prov]).fetchone()
+        if nzbiss is None:
+            nzbiss = myDB.selectone("SELECT * from nzblog WHERE IssueID=?", [self.issueid]).fetchone()
+        return nzbiss
+
     def failed_check(self):
         #issueid = self.issueid
         #comicid = self.comicid
@@ -258,13 +275,21 @@ class FailedProcessor(object):
         # download same issues on different providers (albeit it shouldn't matter, if it's broke it's broke).
         logger.info('prov  : ' + str(self.prov) + '[' + str(self.id) + ']')
         # if this is from nzbhydra, we need to rejig the id line so that the searchid is removed since it's always unique to the search.
+        # A failed release only tells us something about the issue it was grabbed for.
+        # Scope the lookup to that issue so an id shared across releases can't block
+        # unrelated issues (rows without an IssueID still match, as before).
+        issue_scope = ''
+        issue_args = []
+        if self.issueid is not None:
+            issue_scope = ' AND (IssueID=? OR IssueID IS NULL)'
+            issue_args = [str(self.issueid)]
         if 'indexerguid' in self.id:
             st = self.id.find('searchid:')
             end = self.id.find(',',st)
             self.id = '%' + self.id[:st] + '%' + self.id[end+1:len(self.id)-1] + '%'
-            chk_fail = myDB.selectone('SELECT * FROM failed WHERE ID LIKE ?', [self.id]).fetchone()
+            chk_fail = myDB.selectone('SELECT * FROM failed WHERE ID LIKE ?' + issue_scope, [self.id] + issue_args).fetchone()
         else:
-            chk_fail = myDB.selectone('SELECT * FROM failed WHERE ID=?', [self.id]).fetchone()
+            chk_fail = myDB.selectone('SELECT * FROM failed WHERE ID=?' + issue_scope, [self.id] + issue_args).fetchone()
 
         if chk_fail is None:
             logger.info(module + ' Successfully marked this download as Good for downloadable content')
