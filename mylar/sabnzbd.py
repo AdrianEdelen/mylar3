@@ -260,7 +260,7 @@ class SABnzbd(object):
                 elif hq['nzo_id'] == sendresponse and hq['status'] == 'Failed':
                     nzo_exists = True
                     #get the stage / error message and see what we can do
-                    stage = hq['stage_log']
+                    stage = hq.get('stage_log') or []
                     logger.fdebug('stage: %s' % (stage,))
                     for x in stage:
                         if 'Failed' in x['actions'] and any([x['name'] == 'Unpack', x['name'] == 'Repair']):
@@ -268,20 +268,24 @@ class SABnzbd(object):
                                 logger.warn('There was a failure in SABnzbd during the unpack/repair phase that caused a failure: %s' % x['actions'])
                             else:
                                 logger.warn('Failure occured during the Unpack/Repair phase of SABnzbd. This is probably a bad file: %s' % x['actions'])
-                                if mylar.FAILED_DOWNLOAD_HANDLING is True:
-                                    found = {'status':   True,
-                                             'name':     re.sub('.nzb', '', hq['nzb_name']).strip(),
-                                             'location': os.path.abspath(os.path.join(hq['storage'], os.pardir)),
-                                             'failed':   True,
-                                             'issueid':  nzbinfo['issueid'],
-                                             'comicid':  nzbinfo['comicid'],
-                                             'apicall':  True,
-                                             'ddl':      False,
-                                             'download_info': nzbinfo['download_info']}
-                            self.remove_history(hq['nzo_id'], hq['status'])
                             break
+                    logger.warn('SABnzbd reports %s as failed: %s' % (hq['nzb_name'], hq.get('fail_message')))
+                    # Any failed job is a failed download - including ones SABnzbd aborts during the
+                    # download stage ("Aborted, cannot be completed" when articles are missing),
+                    # which previously fell through to 'failed_in_sab' and were never retried.
+                    if mylar.CONFIG.FAILED_DOWNLOAD_HANDLING is True:
+                        storage = hq.get('storage') or ''
+                        found = {'status':   True,
+                                 'name':     re.sub('.nzb', '', hq['nzb_name']).strip(),
+                                 'location': os.path.abspath(os.path.join(storage, os.pardir)) if storage else None,
+                                 'failed':   True,
+                                 'issueid':  nzbinfo['issueid'],
+                                 'comicid':  nzbinfo['comicid'],
+                                 'apicall':  True,
+                                 'ddl':      False,
+                                 'download_info': nzbinfo['download_info']}
+                    self.remove_history(hq['nzo_id'], hq['status'])
                     if found['status'] is False:
-                        self.remove_history(hq['nzo_id'], hq['status'])
                         return {'status': 'failed_in_sab', 'failed': False}
                     else:
                         break
